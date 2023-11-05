@@ -1,15 +1,69 @@
 
 import { NextAuthOptions } from 'next-auth';
-import GithubProvider from 'next-auth/providers/github';
+import CredentialsProvider from "next-auth/providers/credentials";
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import prisma from './prismadb';
+import bcrypt from 'bcrypt'
+
+
 export const authOptions: NextAuthOptions = {
-  // Secret for Next-auth, without this JWT encryption/decryption won't work
-  secret: process.env.NEXTAUTH_SECRET,
-  
-  // Configure one or more authentication providers
+  adapter: PrismaAdapter(prisma),
   providers: [
-    GithubProvider({
-      clientId: process.env.GITHUB_APP_CLIENT_ID as string,
-      clientSecret: process.env.GITHUB_APP_CLIENT_SECRET as string,
-    }),
+      CredentialsProvider({
+          name: "credentials",
+          credentials: {
+              email: { label: "email", type: "text"},
+              password: { label: "password", type: "password" },
+          },
+          async authorize(credentials) {
+
+              // check to see if email and password is there
+              if (!credentials?.email || !credentials.password) {
+                  throw new Error('Please enter an email and password')
+              }
+
+              // check to see if user exists
+              const user = await prisma.accounts.findUnique({
+                  where: {
+                      email: credentials.email
+                  }
+              });
+
+
+              // if no user was found 
+              if (!user || !user?.hashed_password) {
+                  throw new Error('No user found')
+              }
+
+
+
+              // const agencyName = await prisma.agencies.findUnique({
+              //     where: {
+              //         id: user.agency
+              //     }
+              //  })
+
+              // check to see if password matches
+              const passwordMatch = await bcrypt.compare(credentials.password, user.hashed_password)
+
+              // if password does not match
+              if (!passwordMatch) {
+                  throw new Error('Incorrect password')
+              }
+
+        
+
+              console.log(user)
+              return user as any;
+          },
+      }),
   ],
-};
+  secret: process.env.SECRET,
+  session: {
+      strategy: "jwt",
+  },
+  debug: process.env.NODE_ENV === "development",
+  // pages: {
+  //     signIn: '/login',
+  // }
+}
